@@ -42,6 +42,8 @@ interface TranscriptLine {
   dur: number;
 }
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 class YouTubeTranscriptExtractor {
   /**
    * Extracts YouTube video ID from various URL formats or direct ID input
@@ -90,20 +92,35 @@ class YouTubeTranscriptExtractor {
    * Retrieves transcript for a given video ID and language
    */
   async getTranscript(videoId: string, lang: string): Promise<string> {
-    try {
-      const transcript = await getSubtitles({
-        videoID: videoId,
-        lang: lang,
-      });
+    const maxRetries = 3;
+    const retryDelay = 1000;
 
-      return this.formatTranscript(transcript);
-    } catch (error) {
-      console.error('Failed to fetch transcript:', error);
-      throw new McpError(
-        ErrorCode.InternalError,
-        `Failed to retrieve transcript: ${(error as Error).message}`
-      );
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const transcript = await getSubtitles({
+          videoID: videoId,
+          lang: lang,
+        });
+        
+        if (transcript && transcript.length > 0) {
+          return this.formatTranscript(transcript);
+        }
+        
+        console.error(`Attempt ${attempt}: No transcript found, or transcript is empty.`);
+      } catch (error) {
+        console.error(`Attempt ${attempt} failed to fetch transcript:`, error);
+      }
+      
+      if (attempt < maxRetries) {
+        console.error(`Waiting ${retryDelay}ms before next attempt...`);
+        await sleep(retryDelay);
+      }
     }
+    
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Failed to retrieve transcript after ${maxRetries} attempts.`
+    );
   }
 
   /**
